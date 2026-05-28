@@ -83,6 +83,15 @@ RUN chmod +x /usr/local/bin/livesync-cli
 # Custom auto-configuration script
 COPY init-settings.js /app/init-settings.js
 
+# ---- Patch: default encrypt to true ----
+# The CLI resets encrypt to false during startup migration.
+# We patch the compiled bundle so the default is true.
+# This way migration produces encrypt:true instead of false.
+RUN ENTRY=$(ls /app/dist/entrypoint-*.cjs) && \
+    sed -i 's/encrypt: false,/encrypt: true,/g' "$ENTRY" && \
+    sed -i 's/encrypt ?? false/encrypt ?? true/g' "$ENTRY" && \
+    echo "Patched $ENTRY"
+
 # Smart entrypoint — auto-configures from env vars, defaults to daemon
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh

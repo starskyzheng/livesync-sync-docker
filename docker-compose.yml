@@ -1,0 +1,14 @@
+services:
+  livesync-sync:
+    image: ghcr.io/starskyzheng/livesync-sync-docker:latest
+    container_name: livesync-sync
+    restart: unless-stopped
+    volumes:
+      # Mount your vault/database directory to /data
+      - ./vault:/data
+    environment:
+      # Optional: custom database path (default: /data)
+      # LIVESYNC_DB_PATH: /data
+      # Node.js memory limit (default: auto)
+      # NODE_OPTIONS: --max-old-space-size=512
+    command: daemon

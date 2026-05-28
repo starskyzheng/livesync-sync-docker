@@ -1,121 +1,138 @@
-# livesync-sync-docker
+# livesync-sync-docker 🐘
 
-Docker 镜像构建仓库，自动从 [vrtmrz/obsidian-livesync](https://github.com/vrtmrz/obsidian-livesync/tree/main/src/apps/cli) 构建并推送 **Self-hosted LiveSync CLI** 镜像到 GitHub Container Registry。
+> 一行命令跑起 Obsidian LiveSync 头号同步。自动配置，长期运行。
 
-源码不存储在本仓库 — 每次构建从上游实时拉取。
+Docker 镜像构建仓库，自动从 [vrtmrz/obsidian-livesync](https://github.com/vrtmrz/obsidian-livesync/tree/main/src/apps/cli) 构建 **Self-hosted LiveSync CLI**，推送到 GitHub Container Registry。
+
+**亮点：** 设置环境变量即可自动生成配置，第一次跑起来就不用管了。
 
 ## 快速开始
 
-### 前置条件
+### 1. 准备 CouchDB
 
-- 已配置好 CouchDB（或任何兼容 LiveSync 的后端）
-- 已有 `.livesync/settings.json` 配置文件（可通过 `init-settings` 命令生成）
+确保有一个可用的 CouchDB 实例（本地或远程）。
 
-### 拉取镜像
+### 2. 启动同步
 
 ```bash
+# 拉取镜像
 docker pull ghcr.io/starskyzheng/livesync-sync-docker:latest
+
+# 第一次运行：自动配置 + 持续同步
+docker run -d --name livesync-sync --restart unless-stopped \
+  -v /path/to/vault:/data \
+  -e COUCHDB_URL=http://your-couchdb:5984 \
+  -e COUCHDB_USER=admin \
+  -e COUCHDB_PASSWORD=your-password \
+  ghcr.io/starskyzheng/livesync-sync-docker
 ```
 
-### 初始化配置
+就是这么简单。**没有手动配置步骤。** 容器会自动：
+1. 检测到 `.livesync/settings.json` 不存在
+2. 从环境变量生成配置文件
+3. 启动 `daemon` 持续双向同步
+
+### 3. 查看日志
 
 ```bash
-# 生成默认 settings.json
-docker run --rm -v /path/to/vault:/data ghcr.io/starskyzheng/livesync-sync-docker init-settings
+docker logs -f livesync-sync
 ```
 
-然后用 Obsidian 的 Self-hosted LiveSync 插件导出的 URI 配置：
+## Docker Compose
+
+```yaml
+services:
+  livesync-sync:
+    image: ghcr.io/starskyzheng/livesync-sync-docker:latest
+    container_name: livesync-sync
+    restart: unless-stopped
+    volumes:
+      - ./vault:/data
+    environment:
+      COUCHDB_URL: http://192.168.1.100:5984
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: your-password
+      COUCHDB_DBNAME: obsidian-livesync
+```
 
 ```bash
-docker run --rm -v /path/to/vault:/data ghcr.io/starskyzheng/livesync-sync-docker \
-  setup "obsidian://setuplivesync?settings=..."
+docker compose up -d
 ```
 
-或者手动编辑 `vault/.livesync/settings.json`，至少包含：
+### 加解密
 
-```json
-{
-  "couchDB_URI": "http://your-couchdb:5984",
-  "couchDB_USER": "admin",
-  "couchDB_PASSWORD": "password",
-  "couchDB_DBNAME": "obsidian-livesync",
-  "isConfigured": true
-}
+```yaml
+environment:
+  ENCRYPT: "true"
+  ENCRYPT_PASSPHRASE: your-passphrase
 ```
 
-### 运行同步
+### 从 Obsidian 导出 URI 配置
+
+```yaml
+environment:
+  SETUP_URI: "obsidian://setuplivesync?settings=..."
+```
+
+`SETUP_URI` 优先级高于 `COUCHDB_*` 变量。适合直接复制 Obsidian 插件里的配置。
+
+## 环境变量参考
+
+| 变量 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
+| `COUCHDB_URL` | ✅ 首次 | — | CouchDB 服务地址 |
+| `COUCHDB_USER` | 可选 | `""` | CouchDB 用户名 |
+| `COUCHDB_PASSWORD` | 可选 | `""` | CouchDB 密码 |
+| `COUCHDB_DBNAME` | 可选 | `obsidian-livesync` | 数据库名 |
+| `SETUP_URI` | 可选 | — | Obsidian 导出 URI（优先级最高） |
+| `ENCRYPT` | 可选 | `false` | 是否加密 |
+| `ENCRYPT_PASSPHRASE` | 可选 | `""` | 加密密码（ENCRYPT=true 时需要） |
+| `LIVESYNC_DB_PATH` | 可选 | `/data` | 数据库/配置文件目录 |
+| `LIVESYNC_ENABLE` | 可选 | `true` | 是否启用 LiveSync |
+| `SYNC_ON_SAVE` | 可选 | `true` | 保存时同步 |
+| `SYNC_ON_START` | 可选 | `true` | 启动时同步 |
+
+> 已有 `.livesync/settings.json` 后，环境变量被忽略，自动加载现有配置继续同步。
+
+## 手动命令
+
+如果不想用自动配置，仍然可以手动运行所有 CLI 命令：
 
 ```bash
 # 单次同步
 docker run --rm -v /path/to/vault:/data ghcr.io/starskyzheng/livesync-sync-docker sync
 
-# 持续守护模式（推荐）
-docker run --rm -v /path/to/vault:/data ghcr.io/starskyzheng/livesync-sync-docker daemon
+# 初始化设置文件
+docker run --rm -v /path/to/vault:/data ghcr.io/starskyzheng/livesync-sync-docker init-settings
+
+# 列出文件
+docker run --rm -v /path/to/vault:/data ghcr.io/starskyzheng/livesync-sync-docker ls
+
+# 指定间隔轮询（替代 _changes 推送）
+docker run --rm -v /path/to/vault:/data ghcr.io/starskyzheng/livesync-sync-docker daemon --interval 60
 ```
 
-## Docker Compose
+**未指定命令时默认运行 `daemon`**（持续双向同步）。
 
-```bash
-# 下载 docker-compose.yml
-wget https://raw.githubusercontent.com/starskyzheng/livesync-sync-docker/main/docker-compose.yml
+## 文件结构
 
-# 创建 vault 目录
-mkdir -p vault
-
-# 启动（持续同步）
-docker compose up -d
-
-# 查看日志
-docker compose logs -f
-
-# 停止
-docker compose down
 ```
-
-## 命令参考
-
-| 命令 | 用途 |
-|------|------|
-| `sync` | 运行一次同步周期后退出 |
-| `daemon` | **（默认）** 持续双向同步（文件监听 + CouchDB _changes 推送） |
-| `daemon --interval 60` | 轮询模式（60s/次），替代 _changes 推送 |
-| `mirror [vault-path]` | 将数据库内容镜像到本地目录 |
-| `ls [prefix]` | 列出数据库中的文件 |
-| `init-settings` | 生成默认 settings.json |
-| `setup <URI>` | 从 Obsidian 导出 URI 配置 |
-| `push <src> <dst>` | 推送本地文件到数据库 |
-| `pull <src> <dst>` | 从数据库拉取文件到本地 |
-| `info <path>` | 查看文件版本和元数据 |
-| `remote-add <name> <connstr>` | 添加远程配置 |
-
-> 所有命令的数据库路径默认使用 `/data`，可通过 `LIVESYNC_DB_PATH` 环境变量覆盖。
-
-## P2P 同步
-
-容器默认使用 Docker bridge 网络，P2P 的 ICE 候选地址为桥接 IP（不可达）。需要 LAN P2P 时：
-
-```bash
-# Linux 主机网络模式
-docker run --rm --network host -v /path/to/vault:/data ghcr.io/starskyzheng/livesync-sync-docker p2p-host
+livesync-sync-docker/
+├── Dockerfile                       # 多阶段构建（source → builder → runtime-deps → runtime）
+├── docker-entrypoint.sh             # 智能入口：自动配置 + 默认 daemon
+├── init-settings.js                 # 从环境变量生成 settings.json
+├── .github/workflows/
+│   └── docker-build.yml             # CI：构建 + 推送 ghcr.io
+├── docker-compose.yml               # 一键部署
+├── .env.example                     # 环境变量说明
+└── README.md                        # 本文档
 ```
-
-Internet P2P 和 CouchDB 同步无需特殊网络配置。
-
-详情见[官方文档](https://github.com/vrtmrz/obsidian-livesync/tree/main/src/apps/cli#p2p-webrtc-and-docker-networking)。
-
-## Docker 镜像标签
-
-| 标签 | 说明 |
-|------|------|
-| `latest` | main 分支最新构建 |
-| `sha-<hash>` | 每次构建的短 SHA |
-| `v*.*.*` | 手动打 tag 触发（格式同上游版本号） |
 
 ## 构建上游版本
 
 默认从 `main` 分支构建。要指定版本：
 
-### 手动触发（GitHub Actions）
+### GitHub Actions（手动触发）
 
 在 Actions 页面选择 **workflow_dispatch**，填入 `upstream_ref`（如 `0.25.70`）。
 
@@ -124,6 +141,23 @@ Internet P2P 和 CouchDB 同步无需特殊网络配置。
 ```bash
 docker build --build-arg UPSTREAM_REF=0.25.70 -t livesync-sync .
 ```
+
+## 镜像标签
+
+| 标签 | 说明 |
+|------|------|
+| `latest` | main 分支最新构建 |
+| `sha-<hash>` | 每次构建的短 SHA |
+| `v*.*.*` | 手动打 tag 触发 |
+
+## P2P 同步
+
+```bash
+# Linux 主机网络模式
+docker run --rm --network host -v /path/to/vault:/data ghcr.io/starskyzheng/livesync-sync-docker p2p-host
+```
+
+详见[官方文档](https://github.com/vrtmrz/obsidian-livesync/tree/main/src/apps/cli#p2p-webrtc-and-docker-networking)。
 
 ## 许可证
 

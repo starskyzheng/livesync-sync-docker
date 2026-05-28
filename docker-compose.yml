@@ -7,8 +7,21 @@ services:
       # Mount your vault/database directory to /data
       - ./vault:/data
     environment:
-      # Optional: custom database path (default: /data)
+      # ── CouchDB 配置（首次运行自动生成 settings.json）──
+      COUCHDB_URL: http://192.168.1.100:5984
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: your-password
+      COUCHDB_DBNAME: obsidian-livesync
+
+      # ── 可选：加密 ──
+      # ENCRYPT: "true"
+      # ENCRYPT_PASSPHRASE: your-passphrase
+
+      # ── 可选：使用 Obsidian 导出的 setup URI 代替上述配置 ──
+      # SETUP_URI: "obsidian://setuplivesync?settings=..."
+
+      # ── 可选：覆盖默认路径 ──
       # LIVESYNC_DB_PATH: /data
-      # Node.js memory limit (default: auto)
+
+      # ── Node 内存限制 ──
       # NODE_OPTIONS: --max-old-space-size=512
-    command: daemon

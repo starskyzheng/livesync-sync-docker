@@ -64,7 +64,7 @@ RUN npm install --omit=dev
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 4 — runtime
-# Minimal image: CLI bundle + pre-compiled native modules only.
+# Minimal image: CLI bundle + pre-compiled native modules + smart entrypoint.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:22-slim
 
@@ -76,10 +76,17 @@ COPY --from=runtime-deps /deps/node_modules ./node_modules
 # Built CLI bundle from builder stage
 COPY --from=builder /build/src/apps/cli/dist ./dist
 
-# Entrypoint wrapper
+# Official entrypoint (used internally by our wrapper for passthrough)
 COPY --from=source /src/src/apps/cli/docker-entrypoint.sh /usr/local/bin/livesync-cli
 RUN chmod +x /usr/local/bin/livesync-cli
 
+# Custom auto-configuration script
+COPY init-settings.js /app/init-settings.js
+
+# Smart entrypoint — auto-configures from env vars, defaults to daemon
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
 VOLUME ["/data"]
 
-ENTRYPOINT ["livesync-cli"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
